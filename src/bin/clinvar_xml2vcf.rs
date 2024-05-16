@@ -83,6 +83,10 @@ struct Options {
     #[structopt(long, parse(from_os_str))]
     reference: PathBuf,
 
+    /// Path to output
+    #[structopt(long, short, parse(from_os_str))]
+    output: Option<PathBuf>,
+
     /// Path to input [*.xml | *.xml.gz]
     #[structopt(parse(from_os_str))]
     input: PathBuf,
@@ -115,22 +119,30 @@ fn main() -> io::Result<()> {
         Err(Error::new(NotFound, format!("{}", gzi.to_string_lossy())))?
     }
 
-    let path = options.input.to_str().ok_or(Error::new(
+    let file_name = options.input.file_name().ok_or(Error::new(
         InvalidInput,
         format!("{}", options.input.to_string_lossy()),
     ))?;
-    let path = path
-        .strip_suffix(".gz")
-        .unwrap_or(path)
-        .strip_suffix(".xml")
-        .ok_or(Error::new(InvalidInput, format!("{}", path)))?;
 
-    let mut output = Path::new(path).to_path_buf();
-    output.set_extension(if options.debug {
-        EXTENSION_DEBUG_OUTPUT
+    let output = if let Some(mut o) = options.output {
+        if o.is_dir() {
+            o.push(file_name);
+            o.set_extension(if options.debug {
+                EXTENSION_DEBUG_OUTPUT
+            } else {
+                EXTENSION_OUTPUT
+            });
+        }
+        o
     } else {
-        EXTENSION_OUTPUT
-    });
+        let mut o = Path::new(file_name).to_path_buf();
+        o.set_extension(if options.debug {
+            EXTENSION_DEBUG_OUTPUT
+        } else {
+            EXTENSION_OUTPUT
+        });
+        o
+    };
 
     if output.exists() && !options.force {
         Err(Error::new(
@@ -142,26 +154,27 @@ fn main() -> io::Result<()> {
     let temp_dir = tempdir()?;
 
     let mut reader = reader_from_path(options.input)?;
+    {
+        let mut writer = if options.debug {
+            BufWriter::new(File::create(&output)?)
+        } else {
+            BufWriter::new(File::create(temp_dir.path().join(FILE_NAME_TEMP_OUTPUT))?)
+        };
 
-    let mut writer = if options.debug {
-        BufWriter::new(File::create(&output)?)
-    } else {
-        BufWriter::new(File::create(temp_dir.path().join(FILE_NAME_TEMP_OUTPUT))?)
-    };
-
-    output_vcf(
-        &mut reader,
-        &mut writer,
-        options.assembly.as_ref(),
-        options.ignore_error,
-    )?;
+        output_vcf(
+            &mut reader,
+            &mut writer,
+            options.assembly.as_ref(),
+            options.ignore_error,
+        )?;
+    }
 
     if !options.debug {
         if let Err(e) = vcf_sort(
             temp_dir.path().join(FILE_NAME_TEMP_OUTPUT),
             temp_dir.path().join(FILE_NAME_TEMP_SORTED),
         ) {
-            std::fs::rename(temp_dir.path().join(FILE_NAME_TEMP_OUTPUT), &output)?;
+            std::fs::copy(temp_dir.path().join(FILE_NAME_TEMP_OUTPUT), &output)?;
             eprintln!("Error: {}", e);
             eprintln!("Output temp file to: {}", &output.to_string_lossy());
             exit(1)
@@ -172,13 +185,13 @@ fn main() -> io::Result<()> {
             temp_dir.path().join(FILE_NAME_TEMP_NORMALIZED),
             options.reference,
         ) {
-            std::fs::rename(temp_dir.path().join(FILE_NAME_TEMP_SORTED), &output)?;
+            std::fs::copy(temp_dir.path().join(FILE_NAME_TEMP_SORTED), &output)?;
             eprintln!("Error: {}", e);
             eprintln!("Output temp file to: {}", &output.to_string_lossy());
             exit(1)
         };
 
-        std::fs::rename(temp_dir.path().join(FILE_NAME_TEMP_NORMALIZED), &output)?;
+        std::fs::copy(temp_dir.path().join(FILE_NAME_TEMP_NORMALIZED), &output)?;
         vcf_index(&output)?;
     }
 
