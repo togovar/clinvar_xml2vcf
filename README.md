@@ -43,5 +43,5 @@ bcftools faidx Homo_sapiens.GRCh37.dna.primary_assembly.fa.gz
 
 ```bash
 wget "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/xml/ClinVarVCVRelease_00-latest.xml.gz"
-clinvar_xml2vcf --ignore-error --assembly GRCh38 --reference Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz ClinVarVCVRelease_00-latest.xml.gz | tee log.txt
+clinvar_xml2vcf --ignore-error --assembly GRCh38 --reference Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz ClinVarVCVRelease_00-latest.xml.gz 2>&1 | tee log.txt
 ```
